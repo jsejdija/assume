@@ -540,3 +540,23 @@ class WriteOutput(Role):
         rewards_by_unit = np.array(rewards_by_unit)
 
         return rewards_by_unit
+
+
+def output_afterwards(engine, csv_path: str, simulation: str):
+    tables = ["market_dispatch", "unit_dispatch", "market_meta", "power_plant_meta"]
+    table = "unit_dispatch"
+    Path(csv_path).mkdir(exist_ok=True)
+    with engine.begin() as db:
+        #for table in tables:
+            query = text(f"select * from {table} where simulation = '{simulation}'")
+            df = pd.read_sql(query, db, index_col="index")
+            df.to_csv(f"{csv_path}/{table}.csv", index=None)
+
+
+if __name__ == "__main__":
+    from sqlalchemy import create_engine
+    db_uri = "postgresql://assume:assume@localhost:5432/assume"
+    engine = create_engine(db_uri)
+    csv_path = "./output-data"
+    simulation = "amiris_germany2019"
+    output_afterwards(engine, csv_path, simulation)
