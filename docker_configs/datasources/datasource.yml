@@ -26,3 +26,15 @@ datasources:
     timescaledb: true
   isDefault: true
   editable: true
+- name: ENTSOE
+  type: postgres
+  url: 149.201.141.3:5432
+  user: readonly
+  database: entsoe
+  secureJsonData:
+    password: readonly
+  jsonData:
+    sslmode: "verify-ca"
+    postgresVersion: 1200
+    timescaledb: true
+  editable: true
