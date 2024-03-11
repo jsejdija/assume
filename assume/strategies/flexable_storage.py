@@ -142,8 +142,19 @@ class flexableEOMStorage(BaseStrategy):
                     "start_time": start,
                     "end_time": end,
                     "only_hours": None,
-                    "price": price,
-                    "volume": bid_quantity,
+                    # "price": average_price / unit.efficiency_discharge,
+                    "price": average_price,
+                    "volume": max_power_discharge[start],
+                }
+            )
+            bids.append(
+                {
+                    "start_time": start,
+                    "end_time": end,
+                    "only_hours": None,
+                    # "price": average_price * unit.efficiency_charge,
+                    "price": average_price,
+                    "volume": max_power_charge[start],
                 }
             )
 
