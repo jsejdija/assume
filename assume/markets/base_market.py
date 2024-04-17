@@ -4,6 +4,7 @@
 
 import logging
 import math
+import time
 from datetime import datetime
 from itertools import groupby
 from operator import itemgetter
@@ -31,6 +32,8 @@ from assume.common.utils import (
 
 logger = logging.getLogger(__name__)
 
+process_time = 0
+
 
 class MarketMechanism:
     """
@@ -56,6 +59,7 @@ class MarketMechanism:
         self.open_auctions = set()
         self.all_orders = []
         self.results = []
+        self.whole_wait = 0
 
     def validate_registration(
         self, content: RegistrationMessage, meta: MetaDict
@@ -91,6 +95,7 @@ class MarketMechanism:
         Raises:
             AssertionError: If the orderbook is invalid.
         """
+        t = time.time()
         max_price = self.marketconfig.maximum_bid_price
         min_price = self.marketconfig.minimum_bid_price
         max_volume = self.marketconfig.maximum_bid_volume
@@ -131,6 +136,8 @@ class MarketMechanism:
                 assert isinstance(order["price"], int)
             if self.marketconfig.volume_tick:
                 assert isinstance(order["volume"], int)
+
+        self.whole_wait += time.time() - t
 
     def clear(
         self, orderbook: Orderbook, market_products: list[MarketProduct]
@@ -289,6 +296,7 @@ class MarketRole(MarketMechanism, Role):
         Sends an opening message to all registered agents, handles scheduling the clearing of the market and the next opening.
 
         """
+        t = time.time()
         # scheduled to be opened now
         market_open = timestamp2datetime(self.context.current_timestamp)
         market_closing = market_open + self.marketconfig.opening_duration
@@ -340,6 +348,7 @@ class MarketRole(MarketMechanism, Role):
             )
         else:
             logger.debug("market %s - does not reopen", self.marketconfig.market_id)
+        self.whole_wait += time.time() - t
 
     def handle_registration(self, content: RegistrationMessage, meta: MetaDict):
         """
@@ -349,6 +358,7 @@ class MarketRole(MarketMechanism, Role):
             content (RegistrationMessage): The content of the message.
             meta (MetaDict): The metadata of the message.
         """
+        t = time.time()
         agent_id = meta["sender_id"]
         agent_addr = meta["sender_addr"]
         assert content["market_id"] == self.marketconfig.market_id
@@ -373,6 +383,7 @@ class MarketRole(MarketMechanism, Role):
                 "in_reply_to": meta.get("reply_with"),
             },
         )
+        self.whole_wait += time.time() - t
 
     def handle_orderbook(self, content: OrderBookMessage, meta: MetaDict):
         """
@@ -610,3 +621,6 @@ class MarketRole(MarketMechanism, Role):
                 receiver_addr=db_addr,
                 content=message,
             )
+
+    async def on_stop(self):
+        logging.error(f"total market duration was {self.whole_wait}")

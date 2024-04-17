@@ -94,6 +94,7 @@ class World:
         distributed_role: Optional[bool] = None,
     ) -> None:
         logging.getLogger("assume").setLevel(log_level)
+        self.whole = 0
         self.logger = logging.getLogger(__name__)
         self.addr = addr
         self.container = None
@@ -492,10 +493,13 @@ class World:
         self.markets[f"{market_config.market_id}"] = market_config
 
     async def _step(self):
+        t = time.time()
         if self.distributed_role is not False:
             next_activity = await self.clock_manager.distribute_time()
         else:
             next_activity = self.clock.get_next_activity()
+
+        self.whole += time.time() - t
         if not next_activity:
             self.logger.info("simulation finished - no schedules left")
             return None
@@ -535,6 +539,7 @@ class World:
                 self.clock.set_time(end_ts)
         pbar.close()
         await self.container.shutdown()
+        self.logger.error(f"wait_time is {self.whole}")
 
     def run(self):
         """
