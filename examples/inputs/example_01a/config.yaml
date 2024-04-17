@@ -23,7 +23,11 @@ base:
       maximum_bid_price: 3000
       minimum_bid_price: -500
       price_unit: EUR/MWh
-      market_mechanism: pay_as_clear
+      market_mechanism: pay_as_clear_complex_dmas
+      additional_fields:
+        - link
+        - block_id
+        - exclusive_id
 
 tiny:
   start_date: 2019-01-01 00:00
