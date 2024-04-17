@@ -36,8 +36,10 @@ order_types = ["single_ask", "single_bid", "linked_ask", "exclusive_ask"]
 class ComplexDmasClearingRole(MarketRole):
     required_fields = ["link", "block_id", "exclusive_id"]
 
-    def __init__(self, marketconfig: MarketConfig):
+    def __init__(self, marketconfig: MarketConfig, verbose: bool = False):
         super().__init__(marketconfig)
+        if not verbose:
+            log.setLevel(logging.WARNING)
 
     def clear(
         self, orderbook: Orderbook, market_products: list[MarketProduct]
@@ -72,6 +74,7 @@ class ComplexDmasClearingRole(MarketRole):
         opt = SolverFactory(solvers[0])
 
         bid_ids = {}
+        unit_ids = {}
 
         for order in orderbook:
             order_type = None
@@ -99,6 +102,7 @@ class ComplexDmasClearingRole(MarketRole):
                 # block_id, hour, name
                 name = order["agent_id"]
                 bid_ids[name] = order["bid_id"]
+                unit_ids[name] = order.get("unit_id")
                 if "exclusive" in order_type:
                     idx = (order["exclusive_id"], tt, name)
                 elif "linked" in order_type:
@@ -376,11 +380,14 @@ class ComplexDmasClearingRole(MarketRole):
                                 "only_hours": None,
                                 "price": prc,
                                 "volume": vol,
+                                "accepted_price": prc,
+                                "accepted_volume": vol,
                                 "block_id": block,
                                 "link": link,
                                 "exclusive_id": None,
                                 "agent_id": name,
                                 "bid_id": bid_ids[name],
+                                "unit_id": unit_ids[name],
                             }
                             orderbook.append(o)
 
@@ -394,19 +401,24 @@ class ComplexDmasClearingRole(MarketRole):
                                 "only_hours": None,
                                 "price": prc,
                                 "volume": vol,
+                                "accepted_price": prc,
+                                "accepted_volume": vol,
                                 "block_id": None,
                                 "link": None,
                                 "exclusive_id": block,
                                 "agent_id": name,
                                 "bid_id": bid_ids[name],
+                                "unit_id": unit_ids[name],
                             }
                             orderbook.append(o)
 
         for key, val in orders["single_bid"].items():
             block, hour, name = key
-            prc, vol = val
+            _, vol = val
+            prc = prices["price"][hour]
             bstart = start + timedelta(hours=hour)
             end = start + timedelta(hours=hour + 1)
+            prices["price"][hour]
             orderbook.append(
                 {
                     "start_time": bstart,
@@ -414,11 +426,14 @@ class ComplexDmasClearingRole(MarketRole):
                     "only_hours": None,
                     "price": prc,
                     "volume": vol,
+                    "accepted_price": prc,
+                    "accepted_volume": vol,
                     "block_id": None,
                     "link": None,
                     "exclusive_id": None,
                     "agent_id": name,
                     "bid_id": bid_ids[name],
+                    "unit_id": unit_ids[name],
                 }
             )
 
@@ -429,17 +444,19 @@ class ComplexDmasClearingRole(MarketRole):
                 orders_df.index, names=["block_id", "hour", "name"]
             )
 
-            if "linked" in type_ and orders_df.empty:
-                orders_df["price"] = []
-                orders_df["volume"] = []
-                orders_df["link"] = []
-            elif orders_df.empty:
-                orders_df["price"] = []
-                orders_df["volume"] = []
-            elif "linked" in type_:
-                orders_df.columns = ["price", "volume", "link"]
+            if "linked" in type_:
+                if orders_df.empty:
+                    orders_df["price"] = []
+                    orders_df["volume"] = []
+                    orders_df["link"] = []
+                else:
+                    orders_df.columns = ["price", "volume", "link"]
             else:
-                orders_df.columns = ["price", "volume"]
+                if orders_df.empty:
+                    orders_df["price"] = []
+                    orders_df["volume"] = []
+                else:
+                    orders_df.columns = ["price", "volume"]
 
             used_orders[type_] = orders_df.copy()
         # -> return all bid orders
@@ -456,34 +473,6 @@ class ComplexDmasClearingRole(MarketRole):
         prices["volume"] = volumes
         prices["magic_source"] = [get_real_number(m) for m in magic_source]
 
-        # -> build merit order
-        merit_order = {hour: dict(price=[], volume=[], type=[]) for hour in t_range}
-
-        def add_to_merit_order(hour, price, volume, type_):
-            pass
-            # merit_order[hour]["price"].append(price)
-            # merit_order[hour]["volume"].append(volume)
-            # merit_order[hour]["type"].append(type_)
-
-        for index, values in orders["linked_ask"].items():
-            price, volume, _ = values
-            _, hour, _ = index
-            add_to_merit_order(hour, price, volume, "ask")
-        for index, values in orders["exclusive_ask"].items():
-            price, volume = values
-            _, hour, _ = index
-            if volume > 0:
-                add_to_merit_order(hour, price, volume, "ask")
-            else:
-                add_to_merit_order(hour, price, -volume, "bid")
-        for index, values in orders["single_ask"].items():
-            price, volume = values
-            _, hour, _ = index
-            add_to_merit_order(hour, price, volume, "ask")
-        for index, values in orders["single_bid"].items():
-            price, volume = values
-            _, hour, _ = index
-            add_to_merit_order(hour, price, -volume, "bid")
         rejected = []
         meta = []
         for t in t_range:

@@ -13,8 +13,6 @@ from pvlib.location import Location
 from pvlib.pvsystem import PVSystem
 from sqlalchemy import create_engine
 from tqdm import tqdm
-
-# !pip install git+https://github.com/wind-python/windpowerlib@dev
 from windpowerlib import ModelChain, WindTurbine
 
 from assume.scenario.oeds.static import (
@@ -118,21 +116,20 @@ class InfrastructureInterface:
         new_cchps = []
         # aggregate with generatorID
         for genID in cchps["generatorID"].unique():
+            cchp = cchps[cchps["generatorID"] == genID]
             if genID != 0:
-                cchp = cchps[cchps["generatorID"] == genID]
                 cchp.index = range(len(cchp))
-                cchp.at[0, "maxPower"] = sum(cchp["maxPower"])
-                cchp.at[0, "kwkPowerTherm"] = sum(cchp["kwkPowerTherm"])
-                cchp.at[0, "kwkPowerElec"] = sum(cchp["kwkPowerElec"])
-                cchp.at[0, "turbineTyp"] = "Closed Cycle Heat Power"
-                cchp.at[0, "fuel"] = "gas_combined"
+                cchp.loc[0, "maxPower"] = sum(cchp["maxPower"])
+                cchp.loc[0, "kwkPowerTherm"] = sum(cchp["kwkPowerTherm"])
+                cchp.loc[0, "kwkPowerElec"] = sum(cchp["kwkPowerElec"])
+                cchp.loc[0, "turbineTyp"] = "Closed Cycle Heat Power"
+                cchp.loc[0, "fuel"] = "gas_combined"
                 new_cchps.append(
                     cchp.loc[0, cchp.columns]
                 )  # only append the aggregated row!
             else:
-                cchp = cchps[cchps["generatorID"] == 0]
-                cchp.at[0, "turbineTyp"] = "Closed Cycle Heat Power"
-                cchp.at[0, "fuel"] = "gas_combined"
+                cchp.loc[0, "turbineTyp"] = "Closed Cycle Heat Power"
+                cchp.loc[0, "fuel"] = "gas_combined"
                 for line in range(len(cchp)):
                     new_cchps.append(cchp.iloc[line])  # append all rows
 

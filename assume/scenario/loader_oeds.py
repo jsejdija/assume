@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+import logging
 import os
 import shutil
 from datetime import datetime, timedelta
@@ -14,6 +15,8 @@ from assume import World
 from assume.common.forecasts import NaiveForecast
 from assume.common.market_objects import MarketConfig, MarketProduct
 from assume.scenario.oeds.infrastructure import InfrastructureInterface
+
+log = logging.getLogger(__name__)
 
 
 async def load_oeds_async(
@@ -47,7 +50,7 @@ async def load_oeds_async(
         freq="h",
     )
     sim_id = f"{scenario}_{study_case}"
-    print(f"loading scenario {sim_id}")
+    log.info(f"loading scenario {sim_id}")
     infra_interface = InfrastructureInterface("test", infra_uri)
 
     if not nuts_config:
@@ -80,10 +83,10 @@ async def load_oeds_async(
 
     # for each area - add demand and generation
     for area in nuts_config:
-        print(f"loading config {area} for {year}")
+        log.info(f"loading config {area} for {year}")
         config_path = Path.home() / ".assume" / f"{area}_{year}"
         if not config_path.is_dir():
-            print(f"query database time series")
+            log.info(f"query database time series")
             demand = infra_interface.get_demand_series_in_area(area, year)
             demand = demand.resample("h").mean()
             # demand in MW
@@ -97,12 +100,12 @@ async def load_oeds_async(
                 demand.to_csv(config_path / "demand.csv")
                 solar.to_csv(config_path / "solar.csv")
                 if isinstance(wind, float):
-                    print(wind, area, year)
+                    log.info(wind, area, year)
                 wind.to_csv(config_path / "wind.csv")
             except Exception:
                 shutil.rmtree(config_path, ignore_errors=True)
         else:
-            print(f"use existing local time series")
+            log.info("use existing local time series")
             demand = pd.read_csv(config_path / "demand.csv", index_col=0).squeeze()
             solar = pd.read_csv(config_path / "solar.csv", index_col=0).squeeze()
             wind = pd.read_csv(config_path / "wind.csv", index_col=0).squeeze()
@@ -130,40 +133,43 @@ async def load_oeds_async(
         )
 
         world.add_unit_operator(f"renewables{area}")
-        world.add_unit(
-            f"renewables{area}_solar",
-            "power_plant",
-            f"renewables{area}",
-            # the unit_params have no hints
-            {
-                "min_power": 0,
-                "max_power": solar.max(),
-                "bidding_strategies": bidding_strategies["solar"],
-                "technology": "solar",
-                "location": (lat, lon),
-                "node": area,
-            },
-            NaiveForecast(
-                index, availability=solar / solar.max(), fuel_price=0.1, co2_price=0
-            ),
-        )
-        world.add_unit(
-            f"renewables{area}_wind",
-            "power_plant",
-            f"renewables{area}",
-            # the unit_params have no hints
-            {
-                "min_power": 0,
-                "max_power": wind.max(),
-                "bidding_strategies": bidding_strategies["wind"],
-                "technology": "wind",
-                "location": (lat, lon),
-                "node": area,
-            },
-            NaiveForecast(
-                index, availability=wind / wind.max(), fuel_price=0.2, co2_price=0
-            ),
-        )
+        if not solar.empty:
+            world.add_unit(
+                f"renewables{area}_solar",
+                "power_plant",
+                f"renewables{area}",
+                # the unit_params have no hints
+                {
+                    "min_power": 0,
+                    "max_power": solar.max(),
+                    "bidding_strategies": bidding_strategies["solar"],
+                    "technology": "solar",
+                    "location": (lat, lon),
+                    "node": area,
+                },
+                NaiveForecast(
+                    index, availability=solar / solar.max(), fuel_price=0.1, co2_price=0
+                ),
+            )
+
+        if not wind.empty:
+            world.add_unit(
+                f"renewables{area}_wind",
+                "power_plant",
+                f"renewables{area}",
+                # the unit_params have no hints
+                {
+                    "min_power": 0,
+                    "max_power": wind.max(),
+                    "bidding_strategies": bidding_strategies["wind"],
+                    "technology": "wind",
+                    "location": (lat, lon),
+                    "node": area,
+                },
+                NaiveForecast(
+                    index, availability=wind / wind.max(), fuel_price=0.2, co2_price=0
+                ),
+            )
 
         # TODO add biomass, run_hydro and storages
 
@@ -213,8 +219,8 @@ if __name__ == "__main__":
         "postgresql://readonly:readonly@timescale.nowum.fh-aachen.de:5432",
     )
 
-    nuts_config = ["DE1", "DEA", "DEB", "DEC", "DED", "DEE", "DEF"]
-    year = 2019
+    nuts_config = ["DE2", "DEG"]
+    year = 2018
     start = datetime(year, 1, 1)
     end = datetime(year + 1, 1, 1) - timedelta(hours=1)
     marketdesign = [
@@ -222,7 +228,7 @@ if __name__ == "__main__":
             "EOM",
             rr.rrule(rr.HOURLY, interval=24, dtstart=start, until=end),
             timedelta(hours=1),
-            "pay_as_clear",
+            "pay_as_clear_complex_dmas",
             [MarketProduct(timedelta(hours=1), 24, timedelta(hours=1))],
             additional_fields=["block_id", "link", "exclusive_id"],
             maximum_bid_volume=1e9,
@@ -230,7 +236,8 @@ if __name__ == "__main__":
         )
     ]
 
-    default_strategy = {mc.market_id: "naive_eom" for mc in marketdesign}
+    default_strategy = {mc.market_id: "dmas_powerplant" for mc in marketdesign}
+    default_demand_strategy = {mc.market_id: "naive_eom" for mc in marketdesign}
 
     bidding_strategies = {
         "hard coal": default_strategy,
@@ -241,7 +248,7 @@ if __name__ == "__main__":
         "nuclear": default_strategy,
         "wind": default_strategy,
         "solar": default_strategy,
-        "demand": default_strategy,
+        "demand": default_demand_strategy,
     }
     world.loop.run_until_complete(
         load_oeds_async(
